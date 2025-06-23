@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context=".EmployeeActivity">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbarEmployee"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="?attr/colorPrimary"
+        app:title="Trang Nhân viên"
+        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"
+        app:popupTheme="@style/ThemeOverlay.AppCompat.Light"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:gravity="center_horizontal">
+
+        <TextView
+            android:id="@+id/tvWelcomeEmployee"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="32dp"
+            tools:text="Xin chào, employee@example.com"/>
+
+        <Button
+            android:id="@+id/btnGoToAttendance"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="Điểm Danh"
+            android:textSize="18sp"
+            android:layout_marginBottom="16dp"/>
+
+        <Button
+            android:id="@+id/btnGoToEditProfile"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="Xem &amp; Sửa Thông Tin"
+            android:textSize="18sp"
+            android:layout_marginBottom="16dp"/>
+
+        <Button
+            android:id="@+id/btnGoToChangePassword"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="Đổi Mật Khẩu"
+            android:textSize="18sp"/>
+
+    </LinearLayout>
+</LinearLayout>
