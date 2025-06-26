@@ -1,9 +1,11 @@
 package com.example.qlnv;
 
 import android.content.Intent;
-import android.content.SharedPreferences; // Thêm import này
+import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.util.Log;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
@@ -18,11 +20,14 @@ import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.ServerError;
 import com.android.volley.TimeoutError;
+import com.android.volley.VolleyError; // Thêm import này
 import com.android.volley.toolbox.StringRequest;
 import com.android.volley.toolbox.Volley;
 
 import org.json.JSONException;
 import org.json.JSONObject;
+
+import java.nio.charset.StandardCharsets;
 
 public class LoginActivity extends AppCompatActivity {
 
@@ -30,8 +35,15 @@ public class LoginActivity extends AppCompatActivity {
     private Button btnLogin;
     private TextView tvRegister;
     private TextView tvForgotPassword;
-    // Đảm bảo URL này đúng, có port :3000 và trỏ đến IP chính xác của server
-    private static final String LOGIN_URL = "http://192.168.1.6:3000/api/login"; // << KIỂM TRA LẠI PREFIX /api/auth NẾU BẠN TÁCH FILE
+    private RequestQueue requestQueue;
+
+    // Các hằng số để lưu trữ thông tin vào SharedPreferences
+    public static final String AUTH_PREFS = "AUTH_PREFS";
+    public static final String USER_ID_KEY = "USER_ID";
+    public static final String TOKEN_KEY = "TOKEN";
+    public static final String USER_ROLE_KEY = "USER_ROLE";
+    public static final String PROFILE_COMPLETED_KEY = "PROFILE_COMPLETED";
+    public static final String USER_EMAIL_KEY = "USER_EMAIL";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -43,6 +55,8 @@ public class LoginActivity extends AppCompatActivity {
         btnLogin = findViewById(R.id.btnLogin);
         tvRegister = findViewById(R.id.tvRegister);
         tvForgotPassword = findViewById(R.id.tvForgotPassword);
+
+        requestQueue = Volley.newRequestQueue(this);
 
         btnLogin.setOnClickListener(v -> {
             String email = etEmail.getText().toString().trim();
@@ -59,6 +73,7 @@ public class LoginActivity extends AppCompatActivity {
             Intent intent = new Intent(LoginActivity.this, RegisterActivity.class);
             startActivity(intent);
         });
+
         tvForgotPassword.setOnClickListener(v -> {
             Intent intent = new Intent(LoginActivity.this, ForgotPasswordActivity.class);
             startActivity(intent);
@@ -66,17 +81,26 @@ public class LoginActivity extends AppCompatActivity {
     }
 
     private void loginUser(final String email, final String password) {
-        StringRequest request = new StringRequest(Request.Method.POST, LOGIN_URL,
+        // Vô hiệu hóa nút để tránh người dùng nhấn nhiều lần
+        btnLogin.setEnabled(false);
+
+        // Lấy URL động từ ApiConfig
+        String baseUrl = ApiConfig.getBaseUrl(this);
+        String url = baseUrl + "auth/login";
+
+        Log.d("LoginActivity", "Connecting to URL: " + url);
+
+        StringRequest request = new StringRequest(Request.Method.POST, url,
                 response -> {
+                    // Bật lại nút sau khi có phản hồi
+                    btnLogin.setEnabled(true);
                     try {
                         JSONObject json = new JSONObject(response);
                         String status = json.optString("status");
 
                         if ("success".equals(status)) {
-                            // --- BẮT ĐẦU PHẦN SỬA ĐỔI LOGIC ---
-
                             String role = json.optString("role");
-                            boolean profileCompleted = json.optBoolean("profileCompleted", false); // Lấy giá trị profileCompleted
+                            boolean profileCompleted = json.optBoolean("profileCompleted", false);
                             String token = json.optString("token");
                             String userId = "";
                             String userEmail = "";
@@ -87,40 +111,29 @@ public class LoginActivity extends AppCompatActivity {
                                 userEmail = userObject.optString("email");
                             }
 
-                            // Lưu thông tin đăng nhập vào SharedPreferences để dùng ở các màn hình khác
-                            SharedPreferences prefs = getSharedPreferences("AUTH_PREFS", MODE_PRIVATE);
+                            // Lưu thông tin đăng nhập
+                            SharedPreferences prefs = getSharedPreferences(AUTH_PREFS, MODE_PRIVATE);
                             SharedPreferences.Editor editor = prefs.edit();
-                            editor.putString("AUTH_TOKEN", token);
-                            editor.putString("USER_ID", userId);
-                            editor.putString("USER_EMAIL", userEmail);
-                            editor.putString("USER_ROLE", role);
-                            editor.putBoolean("PROFILE_COMPLETED", profileCompleted);
+                            editor.putString(TOKEN_KEY, token);
+                            editor.putString(USER_ID_KEY, userId);
+                            editor.putString(USER_EMAIL_KEY, userEmail);
+                            editor.putString(USER_ROLE_KEY, role);
+                            editor.putBoolean(PROFILE_COMPLETED_KEY, profileCompleted);
                             editor.apply();
 
-                            // Kiểm tra xem đã hoàn thành profile chưa để chuyển hướng
+                            // Chuyển hướng
                             if (!profileCompleted) {
-                                // Nếu chưa hoàn thành profile, chuyển đến màn hình cập nhật
                                 Toast.makeText(this, "Vui lòng cập nhật thông tin cá nhân của bạn.", Toast.LENGTH_LONG).show();
                                 Intent updateProfileIntent = new Intent(LoginActivity.this, UpdateProfileActivity.class);
-                                // Truyền thông tin cần thiết sang UpdateProfileActivity
-                                updateProfileIntent.putExtra("USER_ID", userId);
-
-                                // Dùng email để server định danh nếu chưa có JWT hoàn chỉnh
-                                // (Sau này khi có JWT, chỉ cần truyền token trong header là đủ)
-                                updateProfileIntent.putExtra("USER_EMAIL", userEmail);
                                 startActivity(updateProfileIntent);
                             } else {
-                                // Nếu đã hoàn thành, chuyển đến màn hình chính theo vai trò
                                 if ("admin".equals(role)) {
                                     startActivity(new Intent(LoginActivity.this, AdminActivity.class));
                                 } else {
                                     startActivity(new Intent(LoginActivity.this, EmployeeActivity.class));
                                 }
                             }
-                            finish(); // Đóng LoginActivity sau khi chuyển hướng thành công
-
-                            // --- KẾT THÚC PHẦN SỬA ĐỔI LOGIC ---
-
+                            finish();
                         } else {
                             String message = json.optString("message", "Sai tài khoản hoặc mật khẩu");
                             Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
@@ -131,36 +144,9 @@ public class LoginActivity extends AppCompatActivity {
                     }
                 },
                 error -> {
-                    // ... (phần xử lý lỗi giữ nguyên như cũ, đã khá tốt) ...
-                    String errorMessage = "Lỗi kết nối đến server.";
-                    if (error instanceof TimeoutError) {
-                        errorMessage = "Hết thời gian chờ kết nối server.";
-                    } else if (error instanceof NoConnectionError) {
-                        errorMessage = "Không có kết nối mạng.";
-                    } else if (error instanceof ServerError || error instanceof AuthFailureError) {
-                        // Gộp ServerError và AuthFailureError vì cả hai đều có thể chứa response body
-                        errorMessage = "Server gặp sự cố hoặc xác thực thất bại."; // Thông báo mặc định
-                        if (error.networkResponse != null) {
-                            Log.e("Login", "Server/Auth Error Status code: " + error.networkResponse.statusCode);
-                            try {
-                                String responseBody = new String(error.networkResponse.data, "utf-8");
-                                JSONObject data = new JSONObject(responseBody);
-                                String serverMessage = data.optString("message");
-                                if (serverMessage != null && !serverMessage.isEmpty()) {
-                                    errorMessage = serverMessage; // Hiển thị lỗi cụ thể từ server
-                                }
-                                Log.e("Login", "Server/Auth Error Response Body: " + responseBody);
-                            } catch (Exception e) {
-                                Log.e("Login", "Error parsing server error response", e);
-                            }
-                        }
-                    } else if (error instanceof NetworkError) {
-                        errorMessage = "Lỗi kết nối mạng.";
-                    } else if (error instanceof ParseError) {
-                        errorMessage = "Lỗi phân tích dữ liệu phản hồi.";
-                    }
-                    Log.e("Login", "Lỗi Volley: " + error.toString(), error);
-                    Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show();
+                    // Bật lại nút nếu có lỗi
+                    btnLogin.setEnabled(true);
+                    handleVolleyError(error);
                 }
         ) {
             @Override
@@ -169,26 +155,49 @@ public class LoginActivity extends AppCompatActivity {
             }
 
             @Override
-            public byte[] getBody() throws AuthFailureError {
+            public byte[] getBody() {
                 try {
                     JSONObject jsonBody = new JSONObject();
                     jsonBody.put("email", email);
                     jsonBody.put("password", password);
-                    final String requestBody = jsonBody.toString();
-                    return requestBody.getBytes("utf-8");
-                } catch (JSONException | java.io.UnsupportedEncodingException e) {
+                    return jsonBody.toString().getBytes(StandardCharsets.UTF_8);
+                } catch (JSONException e) {
                     Log.e("Login", "Không thể tạo JSON body cho login", e);
                     return null;
                 }
             }
         };
 
-        request.setRetryPolicy(new com.android.volley.DefaultRetryPolicy(
-                20000,
-                com.android.volley.DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
-                com.android.volley.DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
+        requestQueue.add(request);
+    }
 
-        RequestQueue queue = Volley.newRequestQueue(this);
-        queue.add(request);
+    // SỬA ĐỔI: Thay đổi kiểu tham số từ Exception thành VolleyError
+    private void handleVolleyError(VolleyError error) {
+        String errorMessage = "Đã có lỗi xảy ra. Vui lòng thử lại.";
+        if (error instanceof TimeoutError) {
+            errorMessage = "Hết thời gian chờ kết nối server.";
+        } else if (error instanceof NoConnectionError) {
+            errorMessage = "Không có kết nối mạng. Vui lòng kiểm tra lại.";
+        } else if (error instanceof ServerError || error instanceof AuthFailureError) {
+            errorMessage = "Lỗi từ server hoặc xác thực thất bại.";
+            // Bây giờ `error.networkResponse` có thể truy cập được
+            if (error.networkResponse != null && error.networkResponse.data != null) {
+                try {
+                    String responseBody = new String(error.networkResponse.data, StandardCharsets.UTF_8);
+                    JSONObject data = new JSONObject(responseBody);
+                    String serverMessage = data.optString("message");
+                    if (!TextUtils.isEmpty(serverMessage)) {
+                        errorMessage = serverMessage;
+                    }
+                    Log.e("LoginActivity", "Server Error Body: " + responseBody);
+                } catch (Exception e) {
+                    Log.e("LoginActivity", "Error parsing server error response", e);
+                }
+            }
+        } else if (error instanceof ParseError) {
+            errorMessage = "Lỗi phân tích dữ liệu từ server.";
+        }
+        Log.e("LoginActivity", "Lỗi Volley: " + error.toString());
+        Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show();
     }
 }

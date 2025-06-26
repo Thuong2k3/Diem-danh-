@@ -13,6 +13,7 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "BASE_URL", "\"http://192.168.1.10:3000/api/\"")
     }
 
     buildTypes {
@@ -22,13 +23,16 @@ android {
         }
     }
 
+    // Đã cập nhật để khắc phục cảnh báo
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // Đã gộp các tính năng vào một khối duy nhất
     buildFeatures {
+        buildConfig = true
         viewBinding = true
     }
 }

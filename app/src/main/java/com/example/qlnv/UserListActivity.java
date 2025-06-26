@@ -1,54 +1,81 @@
 package com.example.qlnv;
 
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.MenuItem;
+import android.view.View;
+import android.widget.ProgressBar;
 import android.widget.Toast;
+
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
 import com.android.volley.AuthFailureError;
+import com.android.volley.NetworkError;
+import com.android.volley.NoConnectionError;
+import com.android.volley.ParseError;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
+import com.android.volley.ServerError;
+import com.android.volley.TimeoutError;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import android.content.Intent;
 
-// <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 1. IMPLEMENT INTERFACE CỦA ADAPTER >>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 public class UserListActivity extends AppCompatActivity implements UserAdapter.OnUserClickListener {
+
+    private static final String LOG_TAG = "UserListActivity";
 
     private RecyclerView recyclerViewUsers;
     private UserAdapter userAdapter;
     private List<User> userList;
     private RequestQueue requestQueue;
     private String purpose;
-    private static final String GET_USERS_URL = "http://192.168.1.6:3000/api/users";
+    private String authToken; // Biến để lưu token
+    private ProgressBar progressBar;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_user_list);
 
-        // Lấy mục đích từ Intent để biết là xem điểm danh hay quản lý
+        // Lấy Token từ SharedPreferences
+        SharedPreferences prefs = getSharedPreferences(LoginActivity.AUTH_PREFS, MODE_PRIVATE);
+        authToken = prefs.getString(LoginActivity.TOKEN_KEY, null);
+
+        // Lấy mục đích từ Intent
         purpose = getIntent().getStringExtra("PURPOSE");
         if (purpose == null) {
-            purpose = "MANAGE_USERS"; // Mặc định là quản lý
+            purpose = "MANAGE_USERS"; // Mặc định
         }
 
+        // Kiểm tra quyền truy cập (token)
+        if (authToken == null) {
+            Toast.makeText(this, "Yêu cầu đăng nhập để thực hiện chức năng này.", Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
+
+        // Thiết lập Toolbar
         Toolbar toolbar = findViewById(R.id.toolbarUserList);
         setSupportActionBar(toolbar);
         if (getSupportActionBar() != null) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-            getSupportActionBar().setDisplayShowHomeEnabled(true);
-            // Bạn có thể thêm logic thay đổi tiêu đề ở đây nếu muốn
             if ("VIEW_ATTENDANCE".equals(purpose)) {
                 getSupportActionBar().setTitle("Chọn NV xem điểm danh");
             } else {
@@ -56,16 +83,13 @@ public class UserListActivity extends AppCompatActivity implements UserAdapter.O
             }
         }
 
+        // Ánh xạ và thiết lập RecyclerView
+        progressBar = findViewById(R.id.progressBarUserList); // Ánh xạ ProgressBar
         recyclerViewUsers = findViewById(R.id.recyclerViewUsers);
         recyclerViewUsers.setLayoutManager(new LinearLayoutManager(this));
-
         userList = new ArrayList<>();
-
-        // <<<<<<<<<<<<<<<<<<<<<<<<<<< 2. SỬA LẠI DÒNG NÀY ĐỂ TRUYỀN LISTENER >>>>>>>>>>>>>>>>>>>>>
-        // Truyền "this" vì Activity này đã implement OnUserClickListener
+        // Giả định bạn đã có UserAdapter
         userAdapter = new UserAdapter(this, userList, this);
-        // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
         recyclerViewUsers.setAdapter(userAdapter);
 
         requestQueue = Volley.newRequestQueue(this);
@@ -73,30 +97,101 @@ public class UserListActivity extends AppCompatActivity implements UserAdapter.O
         fetchUsersFromServer();
     }
 
-    // <<<<<<<<<<<<<<<<<<<<<< 3. THÊM PHƯƠNG THỨC NÀY ĐỂ XỬ LÝ SỰ KIỆN CLICK >>>>>>>>>>>>>>>>>>>>>
     @Override
     public void onUserClick(User user) {
-        // Đây là nơi xử lý logic khi một người dùng được click
-
-        // Lấy lại logic cũ của bạn
         if ("VIEW_ATTENDANCE".equals(purpose)) {
-            // Nếu mục đích là xem điểm danh, mở màn hình chi tiết điểm danh
+            // Giả định bạn đã có AttendanceDetailActivity
             Intent intent = new Intent(UserListActivity.this, AttendanceDetailActivity.class);
             intent.putExtra("USER_ID", user.getId());
-            intent.putExtra("USER_EMAIL", user.getEmail());
+            intent.putExtra("USER_NAME", user.getFullName());
             startActivity(intent);
         } else {
-            // Nếu là mục đích khác (quản lý), có thể mở màn hình chi tiết người dùng
-            // Tạm thời hiển thị Toast
-            Toast.makeText(this, "Đã chọn: " + user.getFullName(), Toast.LENGTH_SHORT).show();
-
-            // Ví dụ: Mở màn hình chi tiết người dùng (nếu có)
-            // Intent intent = new Intent(UserListActivity.this, UserDetailActivity.class);
-            // intent.putExtra("USER_ID", user.getId());
-            // startActivity(intent);
+            Toast.makeText(this, "Đã chọn quản lý: " + user.getFullName(), Toast.LENGTH_SHORT).show();
+            // Nơi để implement logic sửa/xóa user sau này
         }
     }
-    // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+    private void fetchUsersFromServer() {
+        progressBar.setVisibility(View.VISIBLE);
+
+        // Sử dụng ApiConfig để lấy URL động
+        String baseUrl = ApiConfig.getBaseUrl(this);
+        String url = baseUrl + "auth/users"; // Route để lấy danh sách người dùng
+
+        Log.d(LOG_TAG, "Fetching users from: " + url);
+
+        JsonObjectRequest jsonObjectRequest = new JsonObjectRequest(Request.Method.GET, url, null,
+                response -> {
+                    progressBar.setVisibility(View.GONE);
+                    try {
+                        // Backend trả về một object có key "users" chứa mảng
+                        JSONArray usersArray = response.getJSONArray("users");
+                        userList.clear();
+                        for (int i = 0; i < usersArray.length(); i++) {
+                            JSONObject userObject = usersArray.getJSONObject(i);
+                            // Giả định bạn đã có class User
+                            User user = new User();
+                            user.setId(userObject.getString("_id"));
+                            user.setEmail(userObject.getString("email"));
+                            user.setRole(userObject.optString("role", "employee"));
+                            user.setFullName(userObject.optString("fullName", "Chưa cập nhật"));
+                            user.setGender(userObject.optString("gender", ""));
+                            user.setDateOfBirth(userObject.optString("dateOfBirth", ""));
+                            user.setHometown(userObject.optString("hometown", ""));
+                            user.setPhoneNumber(userObject.optString("phoneNumber", ""));
+                            user.setProfileCompleted(userObject.optBoolean("profileCompleted", false));
+                            userList.add(user);
+                        }
+                        // Cập nhật adapter với dữ liệu mới
+                        userAdapter.notifyDataSetChanged();
+                    } catch (JSONException e) {
+                        Log.e(LOG_TAG, "JSON parsing error: " + e.getMessage());
+                        Toast.makeText(UserListActivity.this, "Lỗi phân tích dữ liệu server", Toast.LENGTH_SHORT).show();
+                    }
+                },
+                error -> {
+                    progressBar.setVisibility(View.GONE);
+                    handleVolleyError(error);
+                }) {
+            // Gửi token trong header để xác thực
+            @Override
+            public Map<String, String> getHeaders() throws AuthFailureError {
+                Map<String, String> headers = new HashMap<>();
+                headers.put("Authorization", "Bearer " + authToken);
+                return headers;
+            }
+        };
+
+        requestQueue.add(jsonObjectRequest);
+    }
+
+    private void handleVolleyError(Exception error) {
+        String errorMessage = "Đã có lỗi xảy ra. Vui lòng thử lại.";
+        if (error instanceof TimeoutError) {
+            errorMessage = "Hết thời gian chờ kết nối server.";
+        } else if (error instanceof NoConnectionError) {
+            errorMessage = "Không có kết nối mạng. Vui lòng kiểm tra lại.";
+        } else if (error instanceof ServerError || error instanceof AuthFailureError) {
+            errorMessage = "Lỗi từ server hoặc bạn không có quyền truy cập.";
+            if (((com.android.volley.VolleyError) error).networkResponse != null && ((com.android.volley.VolleyError) error).networkResponse.data != null) {
+                try {
+                    String responseBody = new String(((com.android.volley.VolleyError) error).networkResponse.data, StandardCharsets.UTF_8);
+                    JSONObject data = new JSONObject(responseBody);
+                    String serverMessage = data.optString("message");
+                    if (!TextUtils.isEmpty(serverMessage)) {
+                        errorMessage = serverMessage;
+                    }
+                    Log.e(LOG_TAG, "Server Error Body: " + responseBody);
+                } catch (Exception e) {
+                    Log.e(LOG_TAG, "Error parsing server error response", e);
+                }
+            }
+        } else if (error instanceof ParseError) {
+            errorMessage = "Lỗi phân tích dữ liệu từ server.";
+        }
+        Log.e(LOG_TAG, "Lỗi Volley: " + error.toString());
+        Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show();
+    }
 
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
@@ -105,74 +200,5 @@ public class UserListActivity extends AppCompatActivity implements UserAdapter.O
             return true;
         }
         return super.onOptionsItemSelected(item);
-    }
-
-    // --- PHẦN fetchUsersFromServer() GIỮ NGUYÊN, KHÔNG CẦN THAY ĐỔI ---
-    private void fetchUsersFromServer() {
-        JsonObjectRequest jsonObjectRequest = new JsonObjectRequest(Request.Method.GET, GET_USERS_URL, null,
-                response -> {
-                    try {
-                        String status = response.optString("status");
-                        if ("success".equals(status)) {
-                            JSONArray usersArray = response.getJSONArray("users");
-                            userList.clear();
-                            for (int i = 0; i < usersArray.length(); i++) {
-                                JSONObject userObject = usersArray.getJSONObject(i);
-                                User user = new User();
-
-                                user.setId(userObject.optString("_id"));
-                                user.setEmail(userObject.optString("email"));
-                                user.setRole(userObject.optString("role"));
-                                user.setFullName(userObject.optString("fullName", null));
-                                user.setGender(userObject.optString("gender", null));
-                                user.setDateOfBirth(userObject.optString("dateOfBirth", null));
-                                user.setHometown(userObject.optString("hometown", null));
-                                user.setPhoneNumber(userObject.optString("phoneNumber", null));
-                                user.setProfileCompleted(userObject.optBoolean("profileCompleted"));
-
-                                userList.add(user);
-                            }
-                            userAdapter.setUserList(userList);
-                        } else {
-                            String message = response.optString("message", "Failed to fetch users");
-                            Toast.makeText(UserListActivity.this, message, Toast.LENGTH_SHORT).show();
-                        }
-                    } catch (JSONException e) {
-                        Log.e("UserListActivity", "JSON parsing error: " + e.getMessage());
-                        Toast.makeText(UserListActivity.this, "Error parsing server response", Toast.LENGTH_SHORT).show();
-                    }
-                },
-                error -> {
-                    Log.e("UserListActivity", "Volley error: " + error.toString());
-                    String errorMessage = "Error fetching users from server";
-                    if (error.networkResponse != null) {
-                        Log.e("UserListActivity", "Error status code: " + error.networkResponse.statusCode);
-                        try {
-                            String responseBody = new String(error.networkResponse.data, "utf-8");
-                            JSONObject data = new JSONObject(responseBody);
-                            String serverMessage = data.optString("message");
-                            if (serverMessage != null && !serverMessage.isEmpty()) {
-                                errorMessage = serverMessage;
-                            }
-                        } catch (Exception e) {
-                            // Không làm gì thêm
-                        }
-                    } else if (error instanceof com.android.volley.NoConnectionError) {
-                        errorMessage = "No internet connection";
-                    } else if (error instanceof com.android.volley.TimeoutError) {
-                        errorMessage = "Connection timed out";
-                    }
-                    Toast.makeText(UserListActivity.this, errorMessage, Toast.LENGTH_LONG).show();
-                }) {
-            @Override
-            public Map<String, String> getHeaders() throws AuthFailureError {
-                return super.getHeaders(); // Tạm thời
-            }
-        };
-        jsonObjectRequest.setRetryPolicy(new com.android.volley.DefaultRetryPolicy(
-                20000,
-                com.android.volley.DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
-                com.android.volley.DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
-        requestQueue.add(jsonObjectRequest);
     }
 }

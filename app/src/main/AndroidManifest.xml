@@ -7,6 +7,7 @@
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -14,18 +15,18 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.QLNV"
         android:usesCleartextTraffic="true"
-        android:enableOnBackInvokedCallback="true"
         tools:targetApi="31">
-
+        <activity
+            android:name=".IpConfigActivity"
+            android:exported="false" />
         <activity
             android:name=".ForgotPasswordActivity"
             android:exported="false"
-            android:label="Quên Mật khẩu"/>
-
+            android:label="Quên Mật khẩu" />
         <activity
             android:name=".ResetPasswordActivity"
             android:exported="false"
-            android:label="Đặt lại Mật khẩu"/>
+            android:label="Đặt lại Mật khẩu" />
         <activity
             android:name=".AttendanceDetailActivity"
             android:exported="false" />
@@ -66,7 +67,11 @@
         </activity>
         <activity
             android:name=".LoginActivity"
-            android:exported="false" />
+            android:exported="true">  <intent-filter>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+        </activity>
         <activity
             android:name=".RegisterActivity"
             android:exported="true" />

@@ -3,12 +3,13 @@ package com.example.qlnv;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.MenuItem;
 import android.view.View;
-import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -20,37 +21,34 @@ import androidx.core.content.ContextCompat;
 import com.android.volley.AuthFailureError;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
-import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.JsonArrayRequest;
 import com.android.volley.toolbox.Volley;
+import com.kizitonwose.calendar.core.CalendarDay;
+import com.kizitonwose.calendar.core.DayPosition;
+import com.kizitonwose.calendar.view.CalendarView;
+import com.kizitonwose.calendar.view.MonthDayBinder;
+import com.kizitonwose.calendar.view.ViewContainer;
 
-import org.json.JSONArray;
 import org.json.JSONException;
-import org.json.JSONObject;
 
+import java.nio.charset.StandardCharsets;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
-import java.time.format.TextStyle;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import com.kizitonwose.calendar.core.CalendarDay;
-import com.kizitonwose.calendar.core.CalendarMonth;
-import com.kizitonwose.calendar.core.DayPosition;
-import com.kizitonwose.calendar.view.CalendarView;
-import com.kizitonwose.calendar.view.MonthDayBinder;
-import com.kizitonwose.calendar.view.ViewContainer;
-
 public class AttendanceDetailActivity extends AppCompatActivity {
+
+    private static final String LOG_TAG = "AttendanceDetail";
 
     private CalendarView calendarView;
     private TextView tvMonthYear;
-    private ImageButton btnPreviousMonth, btnNextMonth;
-    private Toolbar toolbar;
+    private ProgressBar progressBar;
 
     private RequestQueue requestQueue;
     private String viewedUserId; // ID của người dùng mà Admin đang xem
@@ -59,60 +57,56 @@ public class AttendanceDetailActivity extends AppCompatActivity {
 
     private final Set<LocalDate> attendedDates = new HashSet<>();
 
-    private static final String BASE_URL = "http://192.168.1.6:3000/api/attendance/"; // Thay IP nếu cần
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_attendance_detail);
 
-        toolbar = findViewById(R.id.toolbarAttendanceDetail);
+        // Lấy thông tin được truyền từ UserListActivity
+        viewedUserId = getIntent().getStringExtra("USER_ID");
+        String userName = getIntent().getStringExtra("USER_NAME");
+
+        // Thiết lập Toolbar
+        Toolbar toolbar = findViewById(R.id.toolbarAttendanceDetail);
         setSupportActionBar(toolbar);
         if (getSupportActionBar() != null) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-        }
-
-        // Lấy thông tin được truyền từ UserListActivity
-        viewedUserId = getIntent().getStringExtra("USER_ID");
-        String userEmail = getIntent().getStringExtra("USER_EMAIL");
-
-        // Đặt tiêu đề cho Toolbar
-        if (getSupportActionBar() != null && userEmail != null) {
-            getSupportActionBar().setTitle("Lịch điểm danh: " + userEmail);
+            // Đặt tiêu đề là tên của nhân viên đang xem
+            getSupportActionBar().setTitle("Lịch sử của: " + (userName != null ? userName : "Không rõ"));
         }
 
         // Lấy token của Admin đã đăng nhập để gọi API
-        SharedPreferences prefs = getSharedPreferences("AUTH_PREFS", MODE_PRIVATE);
-        adminToken = prefs.getString("AUTH_TOKEN", null);
+        SharedPreferences prefs = getSharedPreferences(LoginActivity.AUTH_PREFS, MODE_PRIVATE);
+        adminToken = prefs.getString(LoginActivity.TOKEN_KEY, null);
 
-        requestQueue = Volley.newRequestQueue(this);
-
-        if (viewedUserId == null) {
-            Toast.makeText(this, "Lỗi: Không tìm thấy thông tin nhân viên.", Toast.LENGTH_LONG).show();
+        // Kiểm tra thông tin cần thiết
+        if (viewedUserId == null || adminToken == null) {
+            Toast.makeText(this, "Lỗi: Thiếu thông tin người dùng hoặc quyền truy cập.", Toast.LENGTH_LONG).show();
             finish();
             return;
         }
 
+        requestQueue = Volley.newRequestQueue(this);
+
+        // Ánh xạ views
         calendarView = findViewById(R.id.calendarViewDetail);
         tvMonthYear = findViewById(R.id.tvMonthYear);
-        btnPreviousMonth = findViewById(R.id.btnPreviousMonth);
-        btnNextMonth = findViewById(R.id.btnNextMonth);
+        ImageButton btnPreviousMonth = findViewById(R.id.btnPreviousMonth);
+        ImageButton btnNextMonth = findViewById(R.id.btnNextMonth);
+        progressBar = findViewById(R.id.progressBarAttendanceDetail); // Ánh xạ ProgressBar
 
         setupCalendar();
 
-        btnPreviousMonth.setOnClickListener(v -> {
-            if (calendarView.findFirstVisibleMonth() != null) {
-                currentMonth = calendarView.findFirstVisibleMonth().getYearMonth().minusMonths(1);
-                calendarView.smoothScrollToMonth(currentMonth);
-            }
-        });
+        btnPreviousMonth.setOnClickListener(v -> changeMonth(-1));
+        btnNextMonth.setOnClickListener(v -> changeMonth(1));
 
-        btnNextMonth.setOnClickListener(v -> {
-            if (calendarView.findFirstVisibleMonth() != null) {
-                currentMonth = calendarView.findFirstVisibleMonth().getYearMonth().plusMonths(1);
-                calendarView.smoothScrollToMonth(currentMonth);
-            }
-        });
+        // Tải lịch sử lần đầu
+        fetchAttendanceHistory(currentMonth.getYear(), currentMonth.getMonthValue());
+    }
+
+    private void changeMonth(long months) {
+        currentMonth = currentMonth.plusMonths(months);
+        calendarView.smoothScrollToMonth(currentMonth);
     }
 
     private void setupCalendar() {
@@ -146,7 +140,6 @@ public class AttendanceDetailActivity extends AppCompatActivity {
             public void bind(@NonNull DayViewContainer container, @NonNull CalendarDay day) {
                 TextView textView = container.textView;
                 ImageView iconView = container.iconView;
-
                 textView.setText(String.valueOf(day.getDate().getDayOfMonth()));
                 iconView.setVisibility(View.GONE);
 
@@ -154,15 +147,11 @@ public class AttendanceDetailActivity extends AppCompatActivity {
                     textView.setTextColor(Color.BLACK);
                     LocalDate date = day.getDate();
                     if (attendedDates.contains(date)) {
-                        iconView.setImageDrawable(ContextCompat.getDrawable(AttendanceDetailActivity.this, R.drawable.ic_check_circle_green));
+                        iconView.setImageResource(R.drawable.ic_check_circle_green);
                         iconView.setVisibility(View.VISIBLE);
-                    } else {
-                        // Admin chỉ xem, không hiển thị nút hay dấu X cho ngày tương lai
-                        // Có thể hiển thị dấu X cho ngày quá khứ mà không điểm danh
-                        if (date.isBefore(LocalDate.now())) {
-                            iconView.setImageDrawable(ContextCompat.getDrawable(AttendanceDetailActivity.this, R.drawable.ic_cancel_red));
-                            iconView.setVisibility(View.VISIBLE);
-                        }
+                    } else if (date.isBefore(LocalDate.now())) {
+                        iconView.setImageResource(R.drawable.ic_cancel_red);
+                        iconView.setVisibility(View.VISIBLE);
                     }
                 } else {
                     textView.setTextColor(Color.GRAY);
@@ -180,36 +169,38 @@ public class AttendanceDetailActivity extends AppCompatActivity {
     }
 
     private void fetchAttendanceHistory(int year, int month) {
-        String url = BASE_URL + "history?userId=" + viewedUserId + "&year=" + year + "&month=" + month;
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET, url, null,
+        progressBar.setVisibility(View.VISIBLE);
+
+        // SỬA ĐỔI: Sử dụng ApiConfig
+        String baseUrl = ApiConfig.getBaseUrl(this);
+        String url = baseUrl + "attendance/history/" + viewedUserId + "/" + year + "/" + month;
+
+        Log.d(LOG_TAG, "Fetching history from: " + url);
+
+        // SỬA ĐỔI QUAN TRỌNG: Dùng JsonArrayRequest
+        JsonArrayRequest request = new JsonArrayRequest(Request.Method.GET, url, null,
                 response -> {
+                    progressBar.setVisibility(View.GONE);
                     try {
                         attendedDates.clear();
-                        if (response.has("history")) {
-                            JSONArray history = response.getJSONArray("history");
-                            for (int i = 0; i < history.length(); i++) {
-                                JSONObject record = history.getJSONObject(i);
-                                String status = record.optString("status", "present");
-                                String dateStr = record.optString("date");
-                                if ("present".equalsIgnoreCase(status) && !dateStr.isEmpty()) {
-                                    attendedDates.add(LocalDate.parse(dateStr));
-                                }
-                            }
+                        for (int i = 0; i < response.length(); i++) {
+                            String dateStr = response.getString(i);
+                            attendedDates.add(LocalDate.parse(dateStr));
                         }
                         calendarView.notifyCalendarChanged();
                     } catch (JSONException e) {
-                        e.printStackTrace();
+                        Log.e(LOG_TAG, "Lỗi phân tích JSON", e);
                     }
                 },
-                error -> Log.e("AttendanceDetail", "Fetch history error: " + error.toString())
-        ) {
+                error -> {
+                    progressBar.setVisibility(View.GONE);
+                    Log.e(LOG_TAG, "Lỗi tải lịch sử: " + error.toString());
+                    Toast.makeText(this, "Không thể tải lịch sử điểm danh.", Toast.LENGTH_SHORT).show();
+                }) {
             @Override
             public Map<String, String> getHeaders() throws AuthFailureError {
-                HashMap<String, String> headers = new HashMap<>();
-                if (adminToken != null) {
-                    // Gửi token của Admin để xác thực quyền xem
-                    headers.put("Authorization", "Bearer " + adminToken);
-                }
+                Map<String, String> headers = new HashMap<>();
+                headers.put("Authorization", "Bearer " + adminToken);
                 return headers;
             }
         };
@@ -219,7 +210,7 @@ public class AttendanceDetailActivity extends AppCompatActivity {
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         if (item.getItemId() == android.R.id.home) {
-            finish(); // Xử lý nút back trên Toolbar
+            finish();
             return true;
         }
         return super.onOptionsItemSelected(item);
