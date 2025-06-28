@@ -1,37 +1,39 @@
 require("dotenv").config();
 const express = require('express');
 const mongoose = require('mongoose');
-const authRoutes = require('./routes/auth'); // Giả sử authRoutes.js đã được sửa với bcryptjs
-const attendanceRoutes = require('./routes/attendanceRoutes');
+const authRoutes = require('./routes/auth'); // Đảm bảo file này tồn tại
+const attendanceRoutes = require('./routes/attendanceRoutes'); // Đảm bảo file này tồn tại
 const cors = require('cors');
 
 const app = express();
 
 // Middlewares
-app.use(cors()); // Cho phép Cross-Origin Resource Sharing
-
-// THAY ĐỔI Ở ĐÂY: Middleware để parse URL-encoded bodies (từ form data)
-// Đặt trước express.json() để nó có thể xử lý cả hai loại
-app.use(express.urlencoded({ extended: true })); // << THÊM DÒNG NÀY HOẶC ĐẢM BẢO NÓ CÓ
-
-// Middleware để parse JSON request bodies
+app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Định tuyến cho API
-app.use("/api", authRoutes);
+// --- SỬA LỖI QUAN TRỌNG NHẤT NẰM Ở ĐÂY ---
+//
+// QUY TẮC: LUÔN ĐẶT ROUTE CỤ THỂ HƠN LÊN TRƯỚC ROUTE CHUNG CHUNG HƠN
+//
+// Route cho điểm danh: /api/attendance
 app.use("/api/attendance", attendanceRoutes);
-// Chuỗi kết nối MongoDB Atlas
-// vi du no thay duoc link nay cua em la cung~ bay luon database no thich thi no pha' =))),the co phai ma hoa het ko
-// ngta hay tao ra file .env
+
+// Route cho xác thực: /api/auth
+app.use("/api/auth", authRoutes);
+// ------------------------------------------
+
+// Chuỗi kết nối MongoDB
 const uri = process.env.MONGO_URI;
+
 // Kết nối đến MongoDB
-mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true }) // Cảnh báo về các option này là bình thường, có thể bỏ đi
-    .then(() => console.log("✅ MongoDB connected"))
+mongoose.connect(uri)
+    .then(() => console.log("✅ MongoDB connected successfully"))
     .catch(err => {
         console.error("❌ MongoDB connection error:", err.message || err);
     });
 
-// Middleware xử lý lỗi chung
+// Middleware xử lý lỗi chung (phải đặt ở cuối cùng)
 app.use((err, req, res, next) => {
   console.error("Unhandled Server Error:", err.stack || err.message || err);
   const statusCode = err.statusCode || 500;

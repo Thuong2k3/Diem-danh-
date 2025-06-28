@@ -1,21 +1,17 @@
 package com.example.qlnv;
 
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
-
 import androidx.appcompat.app.AppCompatActivity;
+import java.util.regex.Pattern;
 
 public class IpConfigActivity extends AppCompatActivity {
 
-    public static final String CONFIG_PREFS = "IP_CONFIG_PREFS";
-    public static final String KEY_IP_ADDRESS = "IP_ADDRESS";
-    public static final String KEY_PORT = "PORT";
-
-    private EditText etIpAddress, etPort;
+    private EditText etIpAddress;
     private Button btnSaveIp;
 
     @Override
@@ -24,29 +20,38 @@ public class IpConfigActivity extends AppCompatActivity {
         setContentView(R.layout.activity_ip_config);
 
         etIpAddress = findViewById(R.id.etIpAddress);
-        etPort = findViewById(R.id.etPort);
         btnSaveIp = findViewById(R.id.btnSaveIp);
+
+        // Lấy và hiển thị IP đã lưu trước đó (nếu có)
+        String savedIp = ApiConfig.getSavedIp(this);
+        if (!TextUtils.isEmpty(savedIp)) {
+            etIpAddress.setText(savedIp);
+        }
 
         btnSaveIp.setOnClickListener(v -> {
             String ip = etIpAddress.getText().toString().trim();
-            String port = etPort.getText().toString().trim();
+            if (isValidIp(ip)) {
+                // Lưu IP mới bằng phương thức trong ApiConfig
+                ApiConfig.setIpAddress(this, ip);
+                Toast.makeText(this, "Đã lưu địa chỉ IP: " + ip, Toast.LENGTH_SHORT).show();
 
-            if (ip.isEmpty() || port.isEmpty()) {
-                Toast.makeText(this, "Vui lòng nhập đầy đủ IP và Port", Toast.LENGTH_SHORT).show();
-                return;
+                // Chuyển đến màn hình Login
+                Intent intent = new Intent(IpConfigActivity.this, LoginActivity.class);
+                startActivity(intent);
+                finish(); // Đóng màn hình này lại
+            } else {
+                etIpAddress.setError("Địa chỉ IP không hợp lệ");
             }
-
-            // Lưu IP và Port vào SharedPreferences
-            SharedPreferences prefs = getSharedPreferences(CONFIG_PREFS, MODE_PRIVATE);
-            SharedPreferences.Editor editor = prefs.edit();
-            editor.putString(KEY_IP_ADDRESS, ip);
-            editor.putString(KEY_PORT, port);
-            editor.apply();
-
-            // Chuyển sang LoginActivity
-            Intent intent = new Intent(IpConfigActivity.this, LoginActivity.class);
-            startActivity(intent);
-            finish(); // Đóng Activity này lại
         });
+    }
+
+    private boolean isValidIp(String ip) {
+        if (TextUtils.isEmpty(ip)) return false;
+        // Biểu thức chính quy đơn giản để kiểm tra định dạng IPv4
+        String ipRegex = "^([01]?\\d\\d?|2[0-4]\\d|25[0-5])\\." +
+                "([01]?\\d\\d?|2[0-4]\\d|25[0-5])\\." +
+                "([01]?\\d\\d?|2[0-4]\\d|25[0-5])\\." +
+                "([01]?\\d\\d?|2[0-4]\\d|25[0-5])$";
+        return Pattern.compile(ipRegex).matcher(ip).matches();
     }
 }
