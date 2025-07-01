@@ -1,28 +1,38 @@
-// middleware/authMiddleware.js
+const jwt = require('jsonwebtoken');
+const JWT_SECRET = process.env.JWT_SECRET;
 
-// Middleware giả định để kiểm tra đăng nhập (sẽ thay bằng JWT sau)
+// Middleware để xác thực token
 const isAuthenticated = (req, res, next) => {
-    // Giả sử sau khi đăng nhập, thông tin user được lưu vào req.user (ví dụ)
-    // Hoặc bạn có thể kiểm tra session nếu dùng session-based auth
-    // TẠM THỜI: Cho qua để test, SẼ THAY THẾ BẰNG JWT
-    console.warn("isAuthenticated middleware is currently a placeholder!");
-    // if (req.session && req.session.userId) { // Ví dụ nếu dùng session
-    //    return next();
-    // }
-    // return res.status(401).json({ status: "error", message: "Unauthorized: No active session" });
-    return next(); // Tạm thời cho qua
+    // Lấy token từ header Authorization, có định dạng "Bearer <token>"
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (token == null) {
+        // Không có token, trả về lỗi 401 Unauthorized
+        return res.status(401).json({ status: "error", message: "Unauthorized: No token provided" });
+    }
+
+    // Xác thực token
+    jwt.verify(token, JWT_SECRET, (err, payload) => {
+        if (err) {
+            // Token không hợp lệ hoặc hết hạn, trả về lỗi 403 Forbidden
+            return res.status(403).json({ status: "error", message: "Forbidden: Invalid or expired token" });
+        }
+        // Gán thông tin payload (chứa user id, email, role) vào đối tượng req
+        req.user = payload.user;
+        next(); // Chuyển sang xử lý tiếp theo
+    });
 };
 
-// Middleware giả định để kiểm tra vai trò Admin (sẽ thay bằng JWT sau)
+// Middleware để kiểm tra vai trò Admin
 const isAdmin = (req, res, next) => {
-    // Giả sử req.user chứa thông tin user đã đăng nhập, bao gồm role
-    // TẠM THỜI: Cho qua để test, SẼ THAY THẾ BẰNG JWT
-    console.warn("isAdmin middleware is currently a placeholder! Assuming admin for testing.");
-    // if (req.user && req.user.role === 'admin') { // Ví dụ nếu req.user có role
-    //     return next();
-    // }
-    // return res.status(403).json({ status: "error", message: "Forbidden: Admin access required" });
-    return next(); // Tạm thời cho qua
+    // Middleware này phải được gọi SAU isAuthenticated
+    if (req.user && req.user.role === 'admin') {
+        next(); // Nếu là admin, cho qua
+    } else {
+        // Nếu không phải admin, trả về lỗi 403 Forbidden
+        return res.status(403).json({ status: "error", message: "Forbidden: Admin access required" });
+    }
 };
 
 module.exports = { isAuthenticated, isAdmin };

@@ -116,8 +116,6 @@ public class UpdateProfileActivity extends AppCompatActivity {
 
     private void fetchCurrentUserProfile() {
         progressBar.setVisibility(View.VISIBLE);
-
-        // SỬA ĐỔI: Lấy URL động và gọi đúng route
         String baseUrl = ApiConfig.getBaseUrl(this);
         String url = baseUrl + "auth/profile"; // GET /api/auth/profile
 
@@ -125,8 +123,9 @@ public class UpdateProfileActivity extends AppCompatActivity {
                 response -> {
                     progressBar.setVisibility(View.GONE);
                     try {
-                        // Backend trả về một object user trực tiếp
-                        populateUIWithUserData(response);
+                        // SỬA Ở ĐÂY: Backend giờ trả về trực tiếp đối tượng user, không có key "user"
+                        // JSONObject user = response.getJSONObject("user"); (Dòng cũ)
+                        populateUIWithUserData(response); // Dùng trực tiếp response
                     } catch (Exception e) {
                         Log.e(LOG_TAG, "Error parsing profile response", e);
                         Toast.makeText(this, "Lỗi phân tích dữ liệu cá nhân.", Toast.LENGTH_SHORT).show();
@@ -135,7 +134,18 @@ public class UpdateProfileActivity extends AppCompatActivity {
                 error -> {
                     progressBar.setVisibility(View.GONE);
                     Log.e(LOG_TAG, "Error fetching profile: " + error.toString());
-                    Toast.makeText(this, "Lỗi tải thông tin cá nhân.", Toast.LENGTH_SHORT).show();
+                    // Thêm xử lý lỗi chi tiết hơn
+                    String errorMessage = "Lỗi tải thông tin cá nhân.";
+                    if (error.networkResponse != null && error.networkResponse.data != null) {
+                        try {
+                            String responseBody = new String(error.networkResponse.data, StandardCharsets.UTF_8);
+                            JSONObject data = new JSONObject(responseBody);
+                            errorMessage = data.optString("message", errorMessage);
+                        } catch (Exception e) {
+                            Log.e(LOG_TAG, "Error parsing error response", e);
+                        }
+                    }
+                    Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show();
                 }) {
             @Override
             public Map<String, String> getHeaders() throws AuthFailureError {

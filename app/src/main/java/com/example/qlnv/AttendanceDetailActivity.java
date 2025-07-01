@@ -30,6 +30,7 @@ import com.kizitonwose.calendar.view.MonthDayBinder;
 import com.kizitonwose.calendar.view.ViewContainer;
 
 import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
 import java.time.DayOfWeek;
@@ -173,9 +174,8 @@ public class AttendanceDetailActivity extends AppCompatActivity {
 
         // SỬA ĐỔI: Sử dụng ApiConfig
         String baseUrl = ApiConfig.getBaseUrl(this);
-        String url = baseUrl + "attendance/history/" + viewedUserId + "/" + year + "/" + month;
-
-        Log.d(LOG_TAG, "Fetching history from: " + url);
+        String url = baseUrl + "attendance/history/" + this.viewedUserId + "?year=" + year + "&month=" + month;
+        Log.d(LOG_TAG, "Fetching user history from: " + url);
 
         // SỬA ĐỔI QUAN TRỌNG: Dùng JsonArrayRequest
         JsonArrayRequest request = new JsonArrayRequest(Request.Method.GET, url, null,
@@ -183,13 +183,22 @@ public class AttendanceDetailActivity extends AppCompatActivity {
                     progressBar.setVisibility(View.GONE);
                     try {
                         attendedDates.clear();
+                        // Duyệt qua mảng các đối tượng JSON nhận được
                         for (int i = 0; i < response.length(); i++) {
-                            String dateStr = response.getString(i);
+                            // 1. Lấy ra đối tượng JSON tại vị trí i
+                            JSONObject record = response.getJSONObject(i);
+
+                            // 2. Từ đối tượng đó, lấy ra giá trị của key "date"
+                            String dateStr = record.getString("date");
+
+                            // 3. Phân tích chuỗi ngày tháng chính xác
                             attendedDates.add(LocalDate.parse(dateStr));
                         }
+                        // Cập nhật lại giao diện lịch
                         calendarView.notifyCalendarChanged();
                     } catch (JSONException e) {
                         Log.e(LOG_TAG, "Lỗi phân tích JSON", e);
+                        Toast.makeText(this, "Lỗi phân tích dữ liệu từ server.", Toast.LENGTH_SHORT).show();
                     }
                 },
                 error -> {

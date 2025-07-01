@@ -17,12 +17,14 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.content.ContextCompat;
 
+import com.android.volley.AuthFailureError;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonArrayRequest;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -31,8 +33,10 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 import com.kizitonwose.calendar.core.CalendarDay;
@@ -158,60 +162,87 @@ public class AttendanceActivity extends AppCompatActivity {
         });
     }
 
-    private void fetchAttendanceHistory(int year, int month) {
-        // SỬA ĐỔI: Lấy URL động từ ApiConfig
-        String baseUrl = ApiConfig.getBaseUrl(this);
-        // Route này được lấy từ `user-auth-api/routes/attendance.js`
-        String url = baseUrl + "attendance/history/" + userId + "/" + year + "/" + month;
+    // Trong lớp AttendanceActivity
 
-        // SỬA ĐỔI QUAN TRỌNG: Dùng JsonArrayRequest vì backend trả về một mảng JSON
+    private void fetchAttendanceHistory(int year, int month) {
+        String baseUrl = ApiConfig.getBaseUrl(this);
+        // userId đã là thuộc tính của lớp, không cần truyền lại
+        String url = baseUrl + "attendance/my-history?year=" + year + "&month=" + month;
+        Log.d(LOG_TAG, "Fetching my history from: " + url);
+
+        // SỬA Ở ĐÂY: Đảm bảo bạn đang dùng JsonArrayRequest
         JsonArrayRequest request = new JsonArrayRequest(Request.Method.GET, url, null,
                 response -> {
+                    // Logic xử lý mảng đã đúng, không cần thay đổi
                     try {
                         attendedDates.clear();
                         for (int i = 0; i < response.length(); i++) {
-                            // Backend trả về mảng các chuỗi ngày tháng "YYYY-MM-DD"
-                            String dateStr = response.getString(i);
+                            JSONObject record = response.getJSONObject(i);
+                            String dateStr = record.getString("date");
                             attendedDates.add(LocalDate.parse(dateStr));
                         }
                         hasCheckedInToday = attendedDates.contains(today);
                         updateCheckInButtonState();
                         calendarView.notifyCalendarChanged();
                     } catch (JSONException e) {
-                        Log.e(LOG_TAG, "Lỗi phân tích JSON từ mảng lịch sử", e);
+                        Log.e(LOG_TAG, "Lỗi phân tích JSON từ lịch sử điểm danh", e);
                         Toast.makeText(this, "Lỗi phân tích dữ liệu lịch sử", Toast.LENGTH_SHORT).show();
                     }
                 },
                 error -> {
                     Log.e(LOG_TAG, "Lỗi tải lịch sử điểm danh: " + error.toString());
-                    // Có thể thêm xử lý lỗi chi tiết hơn nếu muốn
-                    Toast.makeText(this, "Không thể tải lịch sử điểm danh", Toast.LENGTH_SHORT).show();
-                });
+                    String message = "Không thể tải lịch sử điểm danh.";
+                    if (error.networkResponse != null) {
+                        // Thêm phần này để hiển thị thông báo lỗi từ server nếu có (ví dụ: 401 Unauthorized)
+                        try {
+                            String responseBody = new String(error.networkResponse.data, StandardCharsets.UTF_8);
+                            JSONObject data = new JSONObject(responseBody);
+                            message = data.optString("message", message);
+                        } catch (Exception e) {
+                            // Bỏ qua nếu không phân tích được
+                        }
+                    }
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                }) {
+
+            // Phần gửi token này đã đúng, giữ nguyên
+            @Override
+            public Map<String, String> getHeaders() throws AuthFailureError {
+                Map<String, String> headers = new HashMap<>();
+                SharedPreferences prefs = getSharedPreferences(LoginActivity.AUTH_PREFS, MODE_PRIVATE);
+                String token = prefs.getString(LoginActivity.TOKEN_KEY, null);
+                if (token != null) {
+                    headers.put("Authorization", "Bearer " + token);
+                }
+                return headers;
+            }
+        };
 
         requestQueue.add(request);
     }
 
     private void performCheckIn() {
         btnDoCheckIn.setEnabled(false);
-
-        // SỬA ĐỔI: Lấy URL động
         String baseUrl = ApiConfig.getBaseUrl(this);
-        // Route điểm danh là POST /api/attendance/ (dựa theo attendance.js)
-        String url = baseUrl + "attendance/";
+
+        // SỬA Ở ĐÂY: Thêm "/check-in" vào cuối URL
+        String url = baseUrl + "attendance/check-in";
 
         JSONObject requestBody = new JSONObject();
         try {
-            requestBody.put("userId", userId);
+            // userId đã được lấy từ SharedPreferences ở onCreate
+            requestBody.put("userId", this.userId);
         } catch (JSONException e) {
             e.printStackTrace();
             btnDoCheckIn.setEnabled(true);
             return;
         }
 
+        // Phần còn lại của hàm đã đúng, bao gồm cả việc gửi token
         JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, url, requestBody,
                 response -> {
-                    // Logic đúng: Tải lại lịch sử để đảm bảo đồng bộ
                     Toast.makeText(this, "Điểm danh thành công!", Toast.LENGTH_SHORT).show();
+                    // Tải lại lịch sử để cập nhật giao diện
                     fetchAttendanceHistory(currentMonth.getYear(), currentMonth.getMonthValue());
                 },
                 error -> {
@@ -222,12 +253,24 @@ public class AttendanceActivity extends AppCompatActivity {
                             JSONObject data = new JSONObject(responseBody);
                             message = data.optString("message", message);
                         } catch (Exception e) {
+                            // Sửa lỗi log để nó không tự gây crash
                             Log.e(LOG_TAG, "Lỗi phân tích phản hồi lỗi", e);
                         }
                     }
                     Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                     btnDoCheckIn.setEnabled(true);
-                });
+                }) {
+            @Override
+            public Map<String, String> getHeaders() throws AuthFailureError {
+                Map<String, String> headers = new HashMap<>();
+                SharedPreferences prefs = getSharedPreferences(LoginActivity.AUTH_PREFS, MODE_PRIVATE);
+                String token = prefs.getString(LoginActivity.TOKEN_KEY, null);
+                if (token != null) {
+                    headers.put("Authorization", "Bearer " + token);
+                }
+                return headers;
+            }
+        };
 
         requestQueue.add(request);
     }
